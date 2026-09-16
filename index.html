@@ -452,6 +452,7 @@
     <div class="header-btns">
       <button class="icon-btn" id="btnGradeUp" title="Pasar al siguiente grado" style="font-size:1rem; display:none;">🎓</button>
       <button class="icon-btn" id="btnTown" title="Ver mi pueblo">🏘️</button>
+      <button class="icon-btn" id="btnStories" title="Cuentos">📚</button>
       <button class="icon-btn" id="btnSyl" title="Salón de sílabas">🔤</button>
       <button class="icon-btn" id="btnRewards" title="Mis premios">🏅</button>
       <button class="icon-btn" id="btnVowelReview" title="Repasar vocales" style="font-size:1rem;">🔡</button>
@@ -6822,6 +6823,10 @@ document.getElementById('storyRandomBtn').onclick = () => {
 document.getElementById('closeStoriesLibraryBtn').onclick = () => {
   document.getElementById('storiesLibraryOverlay').classList.add('hidden');
 };
+
+/* Acceso a los cuentos desde el pueblo, sin tener que salir hasta el inicio.
+   La pregunta inicial de "¿juego o cuentos?" se mantiene igual. */
+document.getElementById('btnStories').onclick = () => { openStoriesLibrary(); };
 /* ---------- Estado de la sesión de lectura en curso (soporta pausa, reanudación y salida) ---------- */
 let readingState = null;
 let currentPauseInfo = null;
