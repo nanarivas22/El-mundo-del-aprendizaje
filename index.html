@@ -6186,6 +6186,38 @@ function renderBonusSentence(){
   });
   playFull(() => narrateOptionsSequentially(optionBtns, 0));
 }
+
+/* ===== Concordancia para "aquí hay ___" =====
+   Sin artículo la frase queda coja ("aquí hay paloma").
+   Tres casos: femenino, masculino, e incontables que no llevan artículo. */
+const SIN_ARTICULO = new Set(['agua','leche','jugo','chocolate','queso','pan','sopa','masa',
+  'seda','ropa','sal','arena','fruta','miel','nieve','humo','barro','azucar','café','cafe']);
+const ART_MASC = new Set(['mapa','dia','día','sofa','sofá','planeta','cometa','puente','tren','clavel',
+  'jefe','padre','tigre','elefante','traje','parque','tanque','taxi','kiwi','koala','yoyo',
+  'avion','avión','dragon','dragón','jabon','jabón','sonido','coche','bosque','pez','arroz']);
+const ART_FEM = new Set(['mano','flor','clase','llave','nave','noche','madre','selva','uña',
+  'foto','moto','sandia','sandía','iguana','luz','nariz','pared','red','sed','vez']);
+/* a tónica: femeninas que piden "un" (un hada, un águila) */
+const A_TONICA = new Set(['hada','aguila','águila','area','área','alma','hambre','ala','arpa','aula']);
+
+function normalizaPal(w){
+  return String(w||'').toLowerCase().trim();
+}
+function articuloDe(w){
+  const p = normalizaPal(w);
+  if (!p) return '';
+  if (SIN_ARTICULO.has(p)) return '';
+  if (A_TONICA.has(p)) return 'un';
+  if (ART_MASC.has(p)) return 'un';
+  if (ART_FEM.has(p)) return 'una';
+  if (/(a|ión|cion|ción|dad|tad|umbre|eza|ura)$/.test(p)) return 'una';
+  return 'un';
+}
+function fraseAquiHay(w){
+  const a = articuloDe(w);
+  return ('aquí hay ' + (a ? a + ' ' : '') + normalizaPal(w)).replace(/\s+/g,' ').trim();
+}
+
 function renderBonusComplete(){
   const target = pickBonusWord();
   const distractors = shuffle(learnedWords.filter(w => w.word !== target.word)).slice(0, 2);
@@ -6193,37 +6225,42 @@ function renderBonusComplete(){
   card.innerHTML = `
     <div class="math-title">✏️ Completa la frase</div>
     <div class="prompt-emoji">${target.emoji}</div>
-    <div class="prompt-hint">Escucha con atención</div>
+    <div class="prompt-hint">Lee las palabras y escoge la correcta</div>
     <div class="word-display" id="bonusSentence">aquí hay ___</div>
     <div class="pool" id="bonusOptions"></div>
   `;
   const optsEl = document.getElementById('bonusOptions');
-  const optionBtns = [];
   options.forEach(opt => {
     const btn = document.createElement('button');
-    btn.className = 'syl-btn'; btn.innerHTML = `${opt.emoji}<br>${opt.word.toLowerCase()}`;
+    btn.className = 'syl-btn';
+    /* Solo texto: con el dibujo al lado no leería, escogería la imagen. */
+    btn.textContent = opt.word.toLowerCase();
     btn.onclick = () => {
       document.querySelectorAll('#bonusOptions .syl-btn').forEach(b => b.disabled = true);
+      const frase = fraseAquiHay(target.word);
       if (opt.word === target.word){
         registerCorrect(); bonusActivityResults.completar.correct++;
-        document.getElementById('bonusSentence').textContent = `aquí hay ${target.word.toLowerCase()}`;
+        document.getElementById('bonusSentence').textContent = frase;
         showFeedbackFlash('correct');
-        speak(`aquí hay ${target.word}`);
+        speak(frase);
         setTimeout(advanceBonusStep, 1200);
       } else {
-        registerIncorrect({ activityType:'Evaluacion: completar texto', prompt:target.word, givenAnswer:opt.word, correctAnswer:target.word }); bonusActivityResults.completar.incorrect++;
+        registerIncorrect({ activityType:'Evaluacion: completar texto', prompt:target.word, givenAnswer:opt.word, correctAnswer:target.word });
+        bonusActivityResults.completar.incorrect++;
         showFeedbackFlash('wrong');
-        document.getElementById('bonusSentence').textContent = `aquí hay ${target.word.toLowerCase()}`;
-        speak(`aquí hay ${target.word}`, () => setTimeout(advanceBonusStep, 700));
+        document.getElementById('bonusSentence').textContent = frase;
+        speak(frase, () => setTimeout(advanceBonusStep, 700));
       }
     };
     optsEl.appendChild(btn);
-    optionBtns.push(btn);
   });
-  speak(`Escucha con atención: aquí hay ${target.word}. Ahora selecciona la palabra ${target.word}.`, () => {
-    narrateOptionsSequentially(optionBtns, 0);
+  /* Se lee la frase incompleta y la consigna, nunca la respuesta
+     ni las opciones: si se las leen, no está leyendo. */
+  speak('Mira el dibujo. Aquí hay...', () => {
+    speak('Lee las tres palabras y toca la que completa la frase.');
   });
 }
+
 function renderBonusFind(){
   const target = pickBonusWord();
   const distractors = shuffle(learnedWords.filter(w => w.word !== target.word)).slice(0, 4);
