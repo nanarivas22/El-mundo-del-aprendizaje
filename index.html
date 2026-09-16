@@ -2811,6 +2811,28 @@ function registerCorrect(){ correctCount++; queueSave(); }
    aparte para no ensuciar el registro de errores del panel. */
 let pronounceAlterna = false;
 let voiceLog = { leidas:0, alPrimerIntento:0, intentos:0, conAyuda:0, saltadas:0, porTexto:{} };
+/* El niño que no lee necesita OÍR la consigna, no solo la palabra.
+   Sin esto escoge al azar y quedan errores que nunca cometió. */
+let consignaActual = "", contenidoActual = "", fallosSeguidos = 0;
+/* Tras 2 fallos seguidos se repite la consigna completa: puede que no esté
+   fallando la sílaba, sino que no entendió qué le piden. */
+function repiteSiSePierde(acerto, despues){
+  if (acerto){ fallosSeguidos = 0; if (despues) despues(); return; }
+  fallosSeguidos++;
+  if (fallosSeguidos >= 2 && consignaActual){
+    fallosSeguidos = 0;
+    decirConsigna(consignaActual, contenidoActual, despues);
+  } else if (despues) despues();
+}
+
+function decirConsigna(consigna, contenido, cb){
+  consignaActual = consigna || "";
+  contenidoActual = (contenido && contenido.word) ? contenido.word : (contenido || "");
+  try{
+    speak(consigna, () => { if (contenidoActual) speak(contenidoActual, cb); else if (cb) cb(); });
+  }catch(e){ if (cb) cb(); }
+}
+
 function voiceInit(){
   if (!voiceLog || typeof voiceLog !== 'object') voiceLog = { leidas:0, alPrimerIntento:0, intentos:0, conAyuda:0, saltadas:0, porTexto:{} };
   if (!voiceLog.porTexto) voiceLog.porTexto = {};
@@ -3980,9 +4002,20 @@ function quickReviewResolve(isCorrect, item, audioBtn, audioText){
   if (isCorrect){
     replay(() => setTimeout(() => quickReviewAdvance(true), 300));
   } else {
-    speak('Escucha bien y vuelve a intentar', () => {
-      replay(() => setTimeout(() => quickReviewAdvance(false), 500));
-    });
+    fallosSeguidos++;
+    if (fallosSeguidos >= 2 && consignaActual){
+      /* Dos seguidos: puede que no esté fallando la sílaba, sino que no
+         entendió qué le piden. Se le repite la consigna completa. */
+      fallosSeguidos = 0;
+      speak('Escucha otra vez', () => {
+        decirConsigna(consignaActual, contenidoActual,
+          () => setTimeout(() => quickReviewAdvance(false), 500));
+      });
+    } else {
+      speak('Escucha bien y vuelve a intentar', () => {
+        replay(() => setTimeout(() => quickReviewAdvance(false), 500));
+      });
+    }
   }
 }
 function quickReviewAdvance(wasCorrect){
@@ -4015,6 +4048,7 @@ function renderQuickReviewItem(){
   else renderQuickReviewOrdenarSilabas(item);
 }
 function renderQuickReviewDictado(item){
+  const CONSIGNA_ACTUAL = "Escucha la palabra y escríbela."; fallosSeguidos = 0;
   const card = document.getElementById('quickReviewCard');
   const isVowelOnly = item.syl.length === 1 && item.word.length === 1;
   const instruction = isVowelOnly ? 'Escucha y escribe la vocal' : 'Escucha y escribe la palabra';
@@ -4028,7 +4062,7 @@ function renderQuickReviewDictado(item){
   const playIt = (cb) => {
     audioBtn.classList.add('narrate-highlight');
     if (isVowelOnly){
-      speak(instruction, () => { speak(item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); });
+      decirConsigna(CONSIGNA_ACTUAL, instruction, () => { speak(item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); });
     } else {
       speak(item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); });
     }
@@ -4043,6 +4077,7 @@ function renderQuickReviewDictado(item){
   playIt();
 }
 function renderQuickReviewCompletarSilaba(item){
+  const CONSIGNA_ACTUAL = "Completa la palabra. Toca la sílaba que falta."; fallosSeguidos = 0;
   const card = document.getElementById('quickReviewCard');
   const blankIdx = Math.floor(Math.random() * item.syl.length);
   const display = item.syl.map((s,i) => i === blankIdx ? '___' : s.toLowerCase()).join(' + ');
@@ -4054,7 +4089,7 @@ function renderQuickReviewCompletarSilaba(item){
     <div class="pool" id="qrOptions"></div>
   `;
   const audioBtn = document.getElementById('qrAudioBtn');
-  const playIt = (cb) => { audioBtn.classList.add('narrate-highlight'); speak(item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playIt = (cb) => { audioBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   audioBtn.onclick = () => playIt();
   const correctSyl = item.syl[blankIdx];
   const distractorPool = quickReviewPool.flatMap(w => w.syl).filter(s => s !== correctSyl);
@@ -4072,6 +4107,7 @@ function renderQuickReviewCompletarSilaba(item){
   playIt();
 }
 function renderQuickReviewReconocerSilaba(item){
+  const CONSIGNA_ACTUAL = "Escucha la sílaba y tócala."; fallosSeguidos = 0;
   const card = document.getElementById('quickReviewCard');
   const targetSyl = item.syl[Math.floor(Math.random()*item.syl.length)];
   card.innerHTML = `
@@ -4080,7 +4116,7 @@ function renderQuickReviewReconocerSilaba(item){
     <div class="pool" id="qrOptions"></div>
   `;
   const audioBtn = document.getElementById('qrAudioBtn');
-  const playIt = (cb) => { audioBtn.classList.add('narrate-highlight'); speak(targetSyl, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playIt = (cb) => { audioBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, targetSyl, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   audioBtn.onclick = () => playIt();
   const distractorPool = quickReviewPool.flatMap(w => w.syl).filter(s => s !== targetSyl);
   const options = shuffle([targetSyl, ...shuffle([...new Set(distractorPool)]).slice(0,3)]);
@@ -4097,6 +4133,7 @@ function renderQuickReviewReconocerSilaba(item){
   playIt();
 }
 function renderQuickReviewEscrituraSilabas(item){
+  const CONSIGNA_ACTUAL = "Escucha la palabra y escríbela."; fallosSeguidos = 0;
   const card = document.getElementById('quickReviewCard');
   card.innerHTML = `
     <div class="math-title">🧩 Escucha y arma la palabra</div>
@@ -4105,7 +4142,7 @@ function renderQuickReviewEscrituraSilabas(item){
     <div class="pool" id="qrOptions"></div>
   `;
   const audioBtn = document.getElementById('qrAudioBtn');
-  const playIt = (cb) => { audioBtn.classList.add('narrate-highlight'); speak(item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playIt = (cb) => { audioBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   audioBtn.onclick = () => playIt();
   const slotsEl = document.getElementById('qrSlots');
   item.syl.forEach(() => { const s = document.createElement('div'); s.className = 'slot'; slotsEl.appendChild(s); });
@@ -4136,6 +4173,7 @@ function renderQuickReviewEscrituraSilabas(item){
   playIt();
 }
 function renderQuickReviewOrdenarSilabas(item){
+  const CONSIGNA_ACTUAL = "Ordena las sílabas para armar la palabra."; fallosSeguidos = 0;
   const card = document.getElementById('quickReviewCard');
   card.innerHTML = `
     <div class="math-title">🔀 Ordena las sílabas</div>
@@ -4145,7 +4183,7 @@ function renderQuickReviewOrdenarSilabas(item){
     <div class="quiz-order-list" id="qrPool"></div>
   `;
   const audioBtn = document.getElementById('qrAudioBtn');
-  const playIt = (cb) => { audioBtn.classList.add('narrate-highlight'); speak(item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playIt = (cb) => { audioBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, item.word, () => { audioBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   audioBtn.onclick = () => playIt();
   const slotsWrap = document.getElementById('qrSlots');
   item.syl.forEach((_, i) => { const slot = document.createElement('div'); slot.className = 'quiz-order-slot'; slot.textContent = `${i+1}. ___`; slotsWrap.appendChild(slot); });
@@ -4689,9 +4727,10 @@ function renderSyllableQuizQuestion(){
   else renderPracticeDictado(item);
 }
 function renderPracticeSylRecognize(item){
+  const CONSIGNA_ACTUAL = "Escucha la sílaba y tócala."; fallosSeguidos = 0;
   const target = item.syl;
   const repeatBtn = document.getElementById('quizRepeatBtn');
-  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); speak(target, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, target, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   repeatBtn.onclick = () => playTarget();
   const pool = [...new Set([...learnedSyllables, ...quizSyllables.filter(q=>q.kind==='syl_recognize').map(q=>q.syl)])];
   const distractors = shuffle(pool.filter(s => s !== target)).slice(0, 2);
@@ -4713,10 +4752,11 @@ function renderPracticeSylRecognize(item){
   playTarget();
 }
 function renderPracticeSylPosition(item, position){
+  const CONSIGNA_ACTUAL = "Escucha la palabra y di en qué lugar va la sílaba."; fallosSeguidos = 0;
   const w = item.word;
   const target = position === 'inicial' ? w.syl[0] : w.syl[w.syl.length-1];
   const repeatBtn = document.getElementById('quizRepeatBtn');
-  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); speak(w.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, w.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   repeatBtn.onclick = () => playTarget();
   const distractorPool = w.syl.length > 1 ? w.syl.filter(s => s !== target) : learnedSyllables.filter(s => s !== target);
   const morePool = learnedSyllables.filter(s => s !== target && !distractorPool.includes(s));
@@ -4741,12 +4781,13 @@ function renderPracticeSylPosition(item, position){
   playTarget();
 }
 function renderPracticeCompleteWord(item){
+  const CONSIGNA_ACTUAL = "Completa la palabra. Toca la sílaba que falta."; fallosSeguidos = 0;
   const w = item.word;
   if (!w.syl || w.syl.length < 2){ finishSyllableQuizItem(true); return; }
   const blankIdx = Math.floor(Math.random() * w.syl.length);
   const display = w.syl.map((s,i) => i === blankIdx ? '___' : s.toLowerCase()).join(' + ');
   const repeatBtn = document.getElementById('quizRepeatBtn');
-  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); speak(w.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, w.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   repeatBtn.onclick = () => playTarget();
   const quizEl = document.getElementById('letterQuizArea');
   quizEl.innerHTML = `
@@ -4772,9 +4813,10 @@ function renderPracticeCompleteWord(item){
   playTarget();
 }
 function renderPracticeOrderSyl(item){
+  const CONSIGNA_ACTUAL = "Ordena las sílabas para armar la palabra."; fallosSeguidos = 0;
   const w = item.word;
   const repeatBtn = document.getElementById('quizRepeatBtn');
-  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); speak(w.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, w.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   repeatBtn.onclick = () => playTarget();
   const quizEl = document.getElementById('letterQuizArea');
   quizEl.innerHTML = `
@@ -4808,11 +4850,12 @@ function renderPracticeOrderSyl(item){
   playTarget();
 }
 function renderPracticeMatchImage(item){
+  const CONSIGNA_ACTUAL = "Mira el dibujo y toca la palabra que le corresponde."; fallosSeguidos = 0;
   const target = item.word;
   const distractorPool = learnedWords.filter(w => w.word !== target.word);
   const options = shuffle([target, ...shuffle(distractorPool).slice(0, 2)]);
   const repeatBtn = document.getElementById('quizRepeatBtn');
-  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); speak(target.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, target.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   repeatBtn.onclick = () => playTarget();
   const quizEl = document.getElementById('letterQuizArea');
   quizEl.innerHTML = `
@@ -4834,9 +4877,10 @@ function renderPracticeMatchImage(item){
   playTarget();
 }
 function renderPracticeDictado(item){
+  const CONSIGNA_ACTUAL = "Escucha la palabra y escríbela."; fallosSeguidos = 0;
   const w = item.word;
   const repeatBtn = document.getElementById('quizRepeatBtn');
-  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); speak(w.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
+  const playTarget = (cb) => { repeatBtn.classList.add('narrate-highlight'); decirConsigna(CONSIGNA_ACTUAL, w.word, () => { repeatBtn.classList.remove('narrate-highlight'); if (cb) cb(); }); };
   repeatBtn.onclick = () => playTarget();
   const quizEl = document.getElementById('letterQuizArea');
   quizEl.innerHTML = `
@@ -6853,7 +6897,192 @@ document.getElementById('resumePendingExitBtn').onclick = () => {
   renderStoryLevelTabs(); renderStoryGrid();
 };
 /* ---------- Lectura del cuento ---------- */
+
+/* ============================================================
+   LECTURA EN VOZ ALTA DE CUENTOS
+   El niño le lee a la app, párrafo por párrafo, y ella le
+   responde si lo entendió. El fallo del reconocedor nunca se
+   presenta como error del niño.
+   ============================================================ */
+let vozCuento = null;
+
+function palabrasUtiles(txt){
+  return normalizeStr(String(txt||''))
+    .replace(/[^A-ZÑ ]/g,' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2);
+}
+
+/* Qué tanto de lo que dice el párrafo alcanzó a oír la app */
+function coberturaLectura(oido, objetivo){
+  const meta = palabrasUtiles(objetivo);
+  if (!meta.length) return 1;
+  const dichas = palabrasUtiles(oido);
+  let encontradas = 0;
+  const usadas = new Set();
+  meta.forEach(w => {
+    for (let i = 0; i < dichas.length; i++){
+      if (usadas.has(i)) continue;
+      if (dichas[i] === w || parecido(dichas[i], w)){ usadas.add(i); encontradas++; return; }
+    }
+  });
+  return encontradas / meta.length;
+}
+
+function vozCuentoIniciar(story){
+  vozCuento = {
+    story, idx: 0,
+    total: story.paragraphs.length,
+    intentos: 0,
+    parrafos: story.paragraphs.map((t,i) => ({ i, intentos:0, cobertura:0, ayuda:false, saltado:false }))
+  };
+  vozCuentoPintar();
+}
+
+function vozCuentoPintar(){
+  const v = vozCuento;
+  const cont = document.getElementById('storyReaderText');
+  if (!v || !cont) return;
+  const texto = v.story.paragraphs[v.idx];
+  cont.innerHTML = `
+    <div class="hint-text" style="margin-bottom:6px;">Parte ${v.idx+1} de ${v.total}</div>
+    <p id="vozParrafo" style="font-size:1.25em; line-height:1.7;">${texto}</p>
+    <div id="vozZona" style="margin-top:10px;">
+      <button class="primary-btn" id="vozLeerBtn">🎤 Se lo leo</button>
+      <div class="hint-text" id="vozMsg" style="margin-top:8px;">Toca el micrófono y léelo en voz alta.</div>
+    </div>
+  `;
+  document.getElementById('storyReaderReplayBtn').classList.remove('hidden');
+  document.getElementById('storyReaderReplayBtn').textContent = '🔊 Escúchalo primero';
+  document.getElementById('storyFinishReadingBtn').classList.add('hidden');
+  document.getElementById('vozLeerBtn').onclick = () => vozCuentoEscuchar();
+}
+
+function vozCuentoEscuchar(){
+  const v = vozCuento;
+  const texto = v.story.paragraphs[v.idx];
+  const msg = document.getElementById('vozMsg');
+  const btn = document.getElementById('vozLeerBtn');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){ msg.textContent = 'Este navegador no puede escuchar. Usa el botón verde para seguir.'; vozCuentoSalida(); return; }
+
+  const rec = new SR();
+  rec.lang = 'es-ES'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 3;
+  let oido = '';
+  let cerrado = false;
+
+  msg.textContent = '🎙️ Te estoy escuchando... lee todo el pedacito';
+  btn.textContent = '✅ Ya lo leí';
+  btn.onclick = () => { try{ rec.stop(); }catch(e){ evaluar(); } };
+
+  rec.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++){
+      if (e.results[i].isFinal) oido += ' ' + e.results[i][0].transcript;
+    }
+  };
+  rec.onerror = () => { if (!cerrado){ cerrado = true; msg.textContent = 'No pude usar el micrófono.'; vozCuentoSalida(); restaurar(); } };
+  rec.onend = () => { if (!cerrado){ cerrado = true; evaluar(); } };
+
+  function restaurar(){
+    btn.textContent = '🎤 Se lo leo';
+    btn.onclick = () => vozCuentoEscuchar();
+  }
+
+  function evaluar(){
+    const cob = coberturaLectura(oido, texto);
+    const p = v.parrafos[v.idx];
+    p.intentos++;
+    p.cobertura = Math.max(p.cobertura, cob);
+    if (cob >= 0.6){
+      msg.textContent = cob >= 0.85 ? '✅ ¡Te entendí todo! Muy bien leído' : '✅ ¡Te entendí! Vamos con lo que sigue';
+      voiceRegistra('cuento: ' + v.story.title, p.intentos === 1 ? 'primer' : 'repeticion', p.intentos - 1);
+      xp += 10; updateXpBar();
+      setTimeout(vozCuentoAvanzar, 1100);
+    } else {
+      msg.textContent = 'No te escuché bien, ¿me lo lees otra vez? 🎤';
+      restaurar();
+      vozCuentoSalida();
+    }
+    try{ saveReadingProgressState(); }catch(e){}
+  }
+
+  try{ rec.start(); }
+  catch(e){ msg.textContent = 'No pude prender el micrófono. Usa el botón verde para seguir.'; vozCuentoSalida(); restaurar(); }
+}
+
+/* A los 3 intentos aparece la salida y la ayuda de escuchar */
+function vozCuentoSalida(){
+  const v = vozCuento;
+  const p = v.parrafos[v.idx];
+  if (p.intentos < 3) return;
+  const zona = document.getElementById('vozZona');
+  if (!zona || document.getElementById('vozSeguirBtn')) return;
+  const b = document.createElement('button');
+  b.className = 'secondary-btn'; b.id = 'vozSeguirBtn'; b.style.marginTop = '8px';
+  b.textContent = '➡️ Seguir con lo que viene';
+  b.onclick = () => {
+    p.saltado = true;
+    voiceRegistra('cuento: ' + v.story.title, 'saltada', p.intentos);
+    vozCuentoAvanzar();
+  };
+  zona.appendChild(b);
+}
+
+function vozCuentoAvanzar(){
+  const v = vozCuento;
+  v.idx++;
+  if (v.idx >= v.total){
+    document.getElementById('storyFinishReadingBtn').classList.remove('hidden');
+    const cont = document.getElementById('storyReaderText');
+    const leidos = v.parrafos.filter(p => !p.saltado).length;
+    cont.innerHTML = `
+      <div style="text-align:center;">
+        <div style="font-size:2.4em;">📖✨</div>
+        <p style="font-size:1.2em;">Leíste el cuento completo.</p>
+        <div class="hint-text">Te entendí ${leidos} de ${v.total} partes.</div>
+      </div>`;
+    document.getElementById('storyReaderReplayBtn').classList.add('hidden');
+    if (readingState){
+      readingState.vozParrafos = v.parrafos;
+      readingState.modality = 'voz_alta';
+      try{ saveReadingProgressState(); }catch(e){}
+    }
+    return;
+  }
+  vozCuentoPintar();
+}
+
+/* Elegir cómo quiere leer el cuento */
+function preguntarModoLectura(story, alElegir){
+  let ov = document.getElementById('modoLecturaOverlay');
+  if (!ov){
+    ov = document.createElement('div');
+    ov.className = 'overlay'; ov.id = 'modoLecturaOverlay';
+    document.body.appendChild(ov);
+  }
+  ov.classList.remove('hidden');
+  ov.innerHTML = `
+    <h1>${story.emoji} ${story.title}</h1>
+    <p style="max-width:420px; text-align:center;">¿Cómo quieres leerlo?</p>
+    <button class="primary-btn" id="modoVozBtn" style="margin-bottom:10px;">🎤 Yo se lo leo a la app</button>
+    <button class="secondary-btn" id="modoNormalBtn">🔊 Que me lo lean</button>
+  `;
+  const cerrar = (modo) => { ov.classList.add('hidden'); alElegir(modo); };
+  document.getElementById('modoVozBtn').onclick = () => cerrar('voz_alta');
+  document.getElementById('modoNormalBtn').onclick = () => cerrar(null);
+  try{ speak('¿Cómo quieres leer el cuento? Tú se lo lees a la app, o la app te lo lee.'); }catch(e){}
+}
+
 function openStoryReader(story, isResume){
+  /* Primera vez: se le pregunta cómo quiere leerlo */
+  if (!isResume && !openStoryReader._modo){
+    return preguntarModoLectura(story, (modo) => {
+      openStoryReader._modo = modo || 'normal';
+      openStoryReader(story, isResume);
+      openStoryReader._modo = null;
+    });
+  }
+  const modoVoz = openStoryReader._modo === 'voz_alta';
   currentStoryObj = story;
   document.getElementById('storiesLibraryOverlay').classList.add('hidden');
   document.getElementById('resumePendingOverlay').classList.add('hidden');
@@ -6874,6 +7103,15 @@ function openStoryReader(story, isResume){
   storyReadSeconds = readingState.effectiveReadSeconds || 0;
 
   const textEl = document.getElementById('storyReaderText');
+  if (modoVoz){
+    document.getElementById('storyReaderOverlay').classList.remove('hidden');
+    document.getElementById('readingPauseOverlay').classList.add('hidden');
+    updateStoryTimerDisplay(); startReadTimer();
+    if (readingState) readingState.modality = 'voz_alta';
+    saveReadingProgressState();
+    vozCuentoIniciar(story);
+    return;
+  }
   if (modality === 'narrada_guiada'){
     textEl.innerHTML = '';
     document.getElementById('storyReaderReplayBtn').classList.remove('hidden');
