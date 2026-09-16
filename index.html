@@ -2804,6 +2804,31 @@ function studentStorageKey(){
   return 'student:' + currentGroupId + ':' + sanitizeKey(currentStudentName) + '__' + currentAttemptId;
 }
 function registerCorrect(){ correctCount++; queueSave(); }
+
+/* ===== Lectura en voz alta =====
+   Los intentos NO son errores del niño: el reconocedor de voz falla mucho
+   con voces infantiles, ruido de salón y micrófonos de tablet. Se guardan
+   aparte para no ensuciar el registro de errores del panel. */
+let pronounceAlterna = false;
+let voiceLog = { leidas:0, alPrimerIntento:0, intentos:0, conAyuda:0, saltadas:0, porTexto:{} };
+function voiceInit(){
+  if (!voiceLog || typeof voiceLog !== 'object') voiceLog = { leidas:0, alPrimerIntento:0, intentos:0, conAyuda:0, saltadas:0, porTexto:{} };
+  if (!voiceLog.porTexto) voiceLog.porTexto = {};
+  return voiceLog;
+}
+function voiceRegistra(texto, resultado, intentos){
+  const v = voiceInit();
+  const k = String(texto || '').slice(0, 60);
+  const e = v.porTexto[k] || (v.porTexto[k] = { v:0, i:0, a:0, s:0 });
+  if (resultado === 'saltada'){ v.saltadas++; e.s++; }
+  else {
+    v.leidas++; e.v++;
+    v.intentos += (intentos || 0) + 1; e.i += (intentos || 0) + 1;
+    if (resultado === 'primer') v.alPrimerIntento++;
+    if (resultado === 'ayuda'){ v.conAyuda++; e.a++; }
+  }
+  queueSave();
+}
 let errorLog = [];
 const ERROR_LOG_MAX = 250;
 function logErrorDetail(details){
@@ -2859,6 +2884,7 @@ function collectStateForSave(){
     storyShown: Array.from(storyShown),
     finalReadingDone,
     correctCount, incorrectCount,
+    voiceLog,
     mathCorrectCount, mathIncorrectCount,
     introShownLevels,
     practiceStartedLevels,
@@ -2913,6 +2939,8 @@ function applyLoadedState(data){
   finalReadingDone = !!data.finalReadingDone;
   correctCount = data.correctCount || 0;
   incorrectCount = data.incorrectCount || 0;
+  voiceLog = data.voiceLog || { leidas:0, alPrimerIntento:0, intentos:0, conAyuda:0, saltadas:0, porTexto:{} };
+  voiceInit();
   mathCorrectCount = data.mathCorrectCount || 0;
   mathIncorrectCount = data.mathIncorrectCount || 0;
   introShownLevels = data.introShownLevels || [];
@@ -4903,7 +4931,7 @@ function nextWord(){
       const type = EXTRA_TYPES[extraTypeIndex % EXTRA_TYPES.length]; extraTypeIndex++;
       if (type === 'math') return renderMathChallenge();
       if (type === 'writing') return renderWritingChallenge();
-      if (type === 'pronounce') return renderPronounceChallenge();
+      if (type === 'pronounce') return renderPronounceFrase();
     }
     return renderSentenceRoundChallenge();
   }
@@ -4925,7 +4953,10 @@ function nextWord(){
     const type = EXTRA_TYPES[extraTypeIndex % EXTRA_TYPES.length]; extraTypeIndex++;
     if (type === 'math') return renderMathChallenge();
     if (type === 'writing') return renderWritingChallenge();
-    if (type === 'pronounce') return renderPronounceChallenge();
+    if (type === 'pronounce'){
+      pronounceAlterna = !pronounceAlterna;
+      return pronounceAlterna ? renderPronounceSilaba() : renderPronounceChallenge();
+    }
   }
   currentWord = currentLevelWords[0]; filledSlots = [];
   renderWordChallenge();
@@ -5769,48 +5800,136 @@ function checkWriting(w){
 }
 
 /* ---------- Pronunciación ---------- */
+/* En los niveles de frases, lo que lee es la frase */
+function renderPronounceFrase(){
+  const f = (typeof currentLevelSentences !== 'undefined' && currentLevelSentences.length)
+    ? (currentLevelSentences[0].text || currentLevelSentences[0].sentence || currentLevelSentences[0])
+    : null;
+  if (!f) return renderPronounceChallenge();
+  lecturaEnVozAlta(String(f), "Lee la frase en voz alta.", () => setTimeout(nextWord, 400));
+}
+
+/* Lectura de una sílaba de las que ya conoce */
+function renderPronounceSilaba(){
+  const pool = (typeof currentSyllablePool === 'function') ? currentSyllablePool() : [];
+  if (!pool || !pool.length) return renderPronounceChallenge();
+  const s1 = pool[Math.floor(Math.random()*pool.length)];
+  const txt = (typeof s1 === 'string') ? s1 : (s1.syl || s1.text || '');
+  if (!txt) return renderPronounceChallenge();
+  lecturaEnVozAlta(txt, "Lee la sílaba en voz alta.", () => setTimeout(nextWord, 400));
+}
+
 function renderPronounceChallenge(){
   const lvl = getLevels()[currentPlayIdx];
   const w = lvl.words[Math.floor(Math.random()*lvl.words.length)];
-  footerMsg.textContent = "Lee la palabra en voz alta.";
-  const micHtml = supportsSpeechRecognition()
-    ? `<button class="primary-btn" id="micBtn">🎤 Grabar mi voz</button><div class="hint-text" id="pronounceFeedback"></div>`
-    : `<div class="hint-text">Este navegador no permite grabar la voz aquí.</div>`;
+  lecturaEnVozAlta(w.word, "Lee la palabra en voz alta.", () => setTimeout(nextWord, 400));
+}
+
+/* Pantalla única de lectura en voz alta: sirve para sílabas, palabras y frases */
+function lecturaEnVozAlta(texto, instruccion, alTerminar){
+  footerMsg.textContent = instruccion || "Léelo en voz alta.";
+  const hayMic = supportsSpeechRecognition();
+  const micHtml = hayMic
+    ? `<button class="primary-btn" id="micBtn">🎤 Léelo tú</button><div class="hint-text" id="pronounceFeedback"></div>`
+    : `<div class="hint-text" id="pronounceFeedback">Este navegador no puede escuchar. Léelo en voz alta y toca el botón verde.</div>`;
   card.innerHTML = `
-    <div class="math-title">🎤 Lee en voz alta</div>
-    <div class="prompt-emoji">${w.emoji}</div>
-    <div class="word-display">${w.word}</div>
+    <div class="big-word" style="margin-bottom:10px;">${texto}</div>
     <div id="pronounceArea">${micHtml}</div>
     <button class="secondary-btn" id="hearBtn" style="margin-top:10px;">🔊 Escuchar cómo suena</button>
-    <button class="primary-btn" id="selfCheckBtn" style="margin-top:10px;">✅ Ya la leí en voz alta</button>
+    <button class="primary-btn" id="selfCheckBtn" style="margin-top:10px;">✅ Ya lo leí en voz alta</button>
   `;
-  if (supportsSpeechRecognition()){
-    document.getElementById('micBtn').onclick = () => startRecognition(w.word);
-  }
-  document.getElementById('hearBtn').onclick = () => speak(w.word);
+  if (hayMic) document.getElementById('micBtn').onclick = () => startRecognition(texto, 0, alTerminar);
+  document.getElementById('hearBtn').onclick = () => speak(texto);
   document.getElementById('selfCheckBtn').onclick = () => {
+    voiceRegistra(texto, 'ayuda', 0);
     xp += 8; updateXpBar();
     footerMsg.textContent = "¡Muy bien practicando en voz alta!";
-    setTimeout(nextWord, 400);
+    if (typeof alTerminar === 'function') alTerminar(); else setTimeout(nextWord, 400);
   };
 }
-function startRecognition(targetWord){
+
+function startRecognition(targetWord, intentosPrevios, alAcertar){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const rec = new SR(); rec.lang = 'es-ES'; rec.maxAlternatives = 3;
   const fb = document.getElementById('pronounceFeedback');
-  fb.textContent = "🎙️ Escuchando...";
-  try{ rec.start(); } catch(e){ fb.textContent = "No se pudo acceder al micrófono. Usa 'Ya la leí en voz alta' para continuar."; return; }
+  if (!SR){ if (fb) fb.textContent = "Este navegador no puede escuchar. Usa el botón verde."; return; }
+  const rec = new SR();
+  rec.lang = 'es-ES'; rec.maxAlternatives = 5; rec.interimResults = false;
+  if (fb) fb.textContent = "🎙️ Te estoy escuchando...";
+  try{ rec.start(); }
+  catch(e){ if (fb) fb.textContent = "No pude prender el micrófono. Usa el botón verde para seguir."; return; }
+
   rec.onresult = (e) => {
-    const heard = e.results[0][0].transcript;
-    const said = normalizeStr(heard); const target = normalizeStr(targetWord);
-    if (said.includes(target) || target.includes(said)){
+    const target = normalizeStr(targetWord);
+    let entendido = false;
+    for (let i = 0; i < e.results.length && !entendido; i++){
+      for (let j = 0; j < e.results[i].length && !entendido; j++){
+        const said = normalizeStr(e.results[i][j].transcript);
+        if (!said) continue;
+        if (said.includes(target) || target.includes(said)) entendido = true;
+        else if (parecido(said, target)) entendido = true;
+      }
+    }
+    if (entendido){
       registerCorrect();
-      fb.textContent = `✅ ¡Muy bien! Te escuché decir "${heard}"`;
+      voiceRegistra(targetWord, (intentosPrevios || 0) === 0 ? 'primer' : 'repeticion', intentosPrevios || 0);
+      if (fb) fb.textContent = "✅ ¡Te entendí! Muy bien leído";
       xp += 8; updateXpBar();
-      setTimeout(nextWord, 900);
-    } else { registerIncorrect({ activityType:'Pronunciacion', prompt:targetWord, givenAnswer:heard, correctAnswer:targetWord }); fb.textContent = `Escuche "${heard}". Vamos a intentarlo otra vez`; }
+      if (typeof alAcertar === 'function') alAcertar();
+      else setTimeout(nextWord, 900);
+    } else {
+      /* El que no entendió fue el aparato. No se le nombra el error al niño
+         ni se guarda como respuesta incorrecta. */
+      if (fb) fb.textContent = "No te escuché bien, ¿me lo repites? 🎤";
+      const btn = document.getElementById('micBtn');
+      if (btn) btn.onclick = () => startRecognition(targetWord, (intentosPrevios || 0) + 1, alAcertar);
+      mostrarSalidaLectura(targetWord, (intentosPrevios || 0) + 1, alAcertar);
+    }
   };
-  rec.onerror = () => { fb.textContent = "No pudimos usar el micrófono (permiso bloqueado). Usa 'Ya la leí en voz alta' para continuar."; };
+  rec.onerror = () => {
+    if (fb) fb.textContent = "No pude usar el micrófono. Usa el botón verde para seguir.";
+    mostrarSalidaLectura(targetWord, (intentosPrevios || 0) + 1, alAcertar);
+  };
+}
+
+/* Tolera pequeñas diferencias de transcripción */
+function parecido(a, b){
+  a = String(a); b = String(b);
+  if (!a || !b) return false;
+  const tope = b.replace(/ /g,'').length >= 7 ? 2 : 1;
+  const m = a.length, n = b.length, d = [];
+  for (let i = 0; i <= m; i++) d[i] = [i];
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  if (d[m][n] <= tope) return true;
+  return a.split(' ').some(w => {
+    const dd = [];
+    for (let i = 0; i <= w.length; i++) dd[i] = [i];
+    for (let j = 0; j <= n; j++) dd[0][j] = j;
+    for (let i = 1; i <= w.length; i++)
+      for (let j = 1; j <= n; j++)
+        dd[i][j] = Math.min(dd[i-1][j]+1, dd[i][j-1]+1, dd[i-1][j-1] + (w[i-1] === b[j-1] ? 0 : 1));
+    return dd[w.length][n] <= 1;
+  });
+}
+
+/* A partir del tercer intento aparece una salida: quedarse trancado
+   en una palabra hace más daño que pasarla. */
+function mostrarSalidaLectura(texto, intentos, alAcertar){
+  if (intentos < 3) return;
+  const zona = document.getElementById('pronounceArea');
+  if (!zona || document.getElementById('saltarLecturaBtn')) return;
+  const b = document.createElement('button');
+  b.className = 'secondary-btn';
+  b.id = 'saltarLecturaBtn';
+  b.style.marginTop = '8px';
+  b.textContent = '➡️ Seguir';
+  b.onclick = () => {
+    voiceRegistra(texto, 'saltada', intentos);
+    if (typeof alAcertar === 'function') alAcertar(); else nextWord();
+  };
+  zona.appendChild(b);
 }
 
 /* ================= LEVEL / GAME OVER ================= */
