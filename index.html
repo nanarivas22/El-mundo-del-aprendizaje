@@ -16,6 +16,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>El Mundo del Aprendizaje</title>
+<meta name="theme-color" content="#2F6B4F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="El Mundo">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -8516,6 +8523,23 @@ const LANDING_SPEECH = "El Mundo del Aprendizaje. ¡Comencemos!";
 speak(LANDING_SPEECH, enableLandingBtn);
 setTimeout(enableLandingBtn, 8000);
 initCreator();
+</script>
+<script>
+/* app instalable — El Mundo del Aprendizaje */
+if ("serviceWorker" in navigator) {
+  var _recargando = false;
+  navigator.serviceWorker.addEventListener("controllerchange", function(){
+    if (_recargando) return; _recargando = true; location.reload();
+  });
+  window.addEventListener("load", function(){
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
+      .then(function(reg){ reg.update(); setInterval(function(){ reg.update(); }, 60000); })
+      .catch(function(){});
+  });
+}
+var _instalador = null;
+window.addEventListener("beforeinstallprompt", function(e){ e.preventDefault(); _instalador = e; });
+window.SP_INSTALAR = function(){ if(!_instalador) return false; _instalador.prompt(); _instalador = null; return true; };
 </script>
 </body>
 </html>
